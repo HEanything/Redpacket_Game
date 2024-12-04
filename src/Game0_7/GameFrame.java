@@ -1,54 +1,170 @@
 package Game0_7;
 
-import java.awt.*;
-import java.awt.event.*;
-import java.awt.image.BufferStrategy;
 import javax.imageio.ImageIO;
-import java.net.URL;
+import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.image.BufferStrategy;
 import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+// 红包类，包含红包的位置、速度、金额和图像
+interface RedPacketType {
+    Image getRedPacketImage();
+    double calculateAmount(double scale);
+}
+
+class RedPacketType1 implements RedPacketType {
+    private static final Image RED_POCKET_IMG = loadImage("../images/redpocket.jpg");
+
+    @Override
+    public Image getRedPacketImage() {
+        return RED_POCKET_IMG;
+    }
+
+    @Override
+    public double calculateAmount(double scale) {
+        return 10*scale;  // 红包金额为10
+    }
+    public static Image loadImage(String imagePath) {
+        URL imageURL = RedPacketType1.class.getResource(imagePath);
+        if (imageURL != null) {
+            try {
+                return ImageIO.read(imageURL);
+            } catch (IOException e) {
+                throw new RuntimeException("Error loading image: " + imagePath, e);
+            }
+        }
+        System.err.println("Image not found: " + imagePath);
+        return null;
+    }
+}
+
+class RedPacketType2 implements RedPacketType {
+    private static final Image RED_POCKET_IMG = loadImage("../images/redpocket2.png");
+
+    @Override
+    public Image getRedPacketImage() {
+        return RED_POCKET_IMG;
+    }
+
+    @Override
+    public double calculateAmount(double scale) {
+        return 20*scale;  // 红包金额为20
+    }
+    public static Image loadImage(String imagePath) {
+        URL imageURL = RedPacketType2.class.getResource(imagePath);
+        if (imageURL != null) {
+            try {
+                return ImageIO.read(imageURL);
+            } catch (IOException e) {
+                throw new RuntimeException("Error loading image: " + imagePath, e);
+            }
+        }
+        System.err.println("Image not found: " + imagePath);
+        return null;
+    }
+}
+class RedPacket {
+    private int x, y;
+    private double direction;
+    private int width, height;
+    private RedPacketType redPacketType;  // 使用桥接模式来实现图像和金额的不同实现
+
+    // 构造方法：传入红包类型和其他基本信息
+    public RedPacket(int x, int y, double direction, RedPacketType redPacketType) {
+        this.x = x;
+        this.y = y;
+        this.direction = direction;
+        this.redPacketType = redPacketType;
+
+        // 随机生成一个放大倍数
+        double scale = 1 + Math.random() * 1;
+        this.width = (int) (30 * scale);
+        this.height = (int) (45 * scale);
+    }
+
+    public double getAmount() {
+        double scale = (width/30.0);
+        return redPacketType.calculateAmount(scale);  // 根据红包类型计算金额
+    }
+
+    public Image getRedPocketImg() {
+        return redPacketType.getRedPacketImage();  // 根据红包类型获取图像
+    }
+
+    public void update(int width, int height) {
+        x += Math.cos(direction) * 2;
+        y += Math.sin(direction) * 2;
+
+        if (x < 0 || x > width || y < 0 || y > height) {
+            x = (int) (Math.random() * width);
+            y = (int) (Math.random() * height);
+            direction = Math.random() * Math.PI * 2;
+        }
+    }
+
+    public int getX() {
+        return x;
+    }
+
+    public int getY() {
+        return y;
+    }
+
+    public int getWidth() {
+        return width;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+}
+
+
 public class GameFrame extends Frame {
-    private Image bgImg;  // 背景图像
-    private Image planeImg;  // 飞机图像
-    private Image redPocketImg;  // 红包图像
-    private int x = 275, y = 275;  // 飞机的初始坐标
-    private boolean left, right, up, down;  // 飞机运动方向标志
+    private Image bgImg;
+    private Image planeImg;
+    private Image redPocketImg1;
+    private Image redPocketImg2;
+    private int x = 275, y = 275;
+    private boolean left, right, up, down;
+    private List<RedPacket> redPackets;
+    private int redPacketCount = 0;
+    private int totalAmount = 0;
+    private long startTime;
+    private long endTime = 20000;
+    private boolean gameOver = false;
+    private boolean gameStarted = false;
+    private boolean gameReset = false;  // 新增标志，表示游戏是否被重置
+    private GameLoop gameLoop;  // 游戏循环对象
+    private Thread gameLoopThread;  // 游戏循环线程
 
-    private List<RedPacket> redPackets;  // 存储所有红包
-    private int redPacketCount = 0;  // 抢到的红包数量
-    private int totalAmount = 0;  // 抢到的总金额
-    private long startTime;  // 游戏开始时间
-    private long endTime = 20000;  // 游戏持续时间（毫秒）
-    private boolean gameOver = false;  // 游戏是否结束
-    private boolean gameStarted = false;  // 游戏是否已经开始
-
-    // 游戏入口
     public static void main(String[] args) {
         GameFrame gameFrame = new GameFrame();
         gameFrame.init();
     }
 
-    // 构造方法，初始化资源和集合
     public GameFrame() {
-        this.bgImg = loadImage("../images/bg.jpg");  // 加载背景图像
-        this.planeImg = loadImage("../images/nets.jpg");  // 加载网图像
-        this.redPocketImg = loadImage("../images/redpocket2.png");  // 加载红包图像
-        this.redPackets = new ArrayList<>();  // 初始化红包集合
-        this.startTime = System.currentTimeMillis();  // 记录游戏开始时间
+        this.bgImg = loadImage("../images/bg.jpg");
+        this.planeImg = loadImage("../images/nets.jpg");
+        this.redPocketImg1 = loadImage("../images/redpocket.jpg");
+        this.redPocketImg2 = loadImage("../images/redpocket2.png");
+        this.redPackets = new ArrayList<>();
+        this.startTime = System.currentTimeMillis();
     }
 
-    // 初始化游戏窗口和游戏对象
     public void init() {
-        // 设置窗口属性
         setTitle("抢红包游戏");
-        setSize(600, 600);
-        setLocation(500, 100);
-        setVisible(false);  // 初始时不显示游戏窗口
+        setSize(1200, 800);
+        setLocation(300, 100);
+        setVisible(false);
 
-        // 窗口关闭时退出程序
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -56,48 +172,63 @@ public class GameFrame extends Frame {
             }
         });
 
-        // 初始化红包
         initializeRedPackets();
 
-        // 添加键盘监听器，监听按键事件
         addKeyListener(new KeyMonitor());
 
-        // 启动登录窗口
         new LoginFrame(this);
     }
 
-    // 开始游戏的方法
     public void startGame() {
         gameStarted = true;
+        gameReset = false;  // 确保没有重置过
         setVisible(true);
-        new Thread(new GameLoop()).start();
+        startGameLoop();  // 启动游戏循环
     }
 
-    // 初始化红包的集合，默认50个
-    private void initializeRedPackets() {
-        for (int i = 0; i < 50; i++) {
-            redPackets.add(new RedPacket(200, 400, Math.random() * Math.PI * 2, (int) (Math.random() * 100) + 1));
+    // 开始游戏循环
+    private void startGameLoop() {
+        if (gameLoopThread != null && gameLoopThread.isAlive()) {
+            gameLoopThread.interrupt();  // 停止当前线程
+        }
+
+        gameLoop = new GameLoop();
+        gameLoopThread = new Thread(gameLoop);
+        gameLoopThread.start();
+    }
+
+    public void initializeRedPackets() {
+        for (int i = 0; i < 25; i++) {
+            RedPacketType redPacketType = Math.random() < 0.5 ? new RedPacketType1() : new RedPacketType2();  // 随机选择红包类型
+
+            redPackets.add(new RedPacket(
+                    (int) (Math.random() * getWidth()),  // 随机生成红包的初始位置
+                    (int) (Math.random() * getHeight()),
+                    Math.random() * Math.PI * 2,  // 随机生成红包的运动角度
+                    redPacketType  // 传入红包类型
+            ));
         }
     }
 
-    // 加载图像资源的方法
+
+
+
     private Image loadImage(String imagePath) {
         URL imageURL = getClass().getResource(imagePath);
         if (imageURL != null) {
             try {
-                return ImageIO.read(imageURL);  // 返回加载的图像
+                return ImageIO.read(imageURL);
             } catch (IOException e) {
                 throw new RuntimeException("Error loading image: " + imagePath, e);
             }
         }
-        System.err.println("Image not found: " + imagePath);  // 如果图像未找到，打印错误信息
+        System.err.println("Image not found: " + imagePath);
         return null;
     }
 
-    // 绘制游戏界面的方法
     @Override
     public void update(Graphics g) {
-        if (!gameStarted) return;  // 如果游戏没有开始，不绘制界面
+        if (!gameStarted) return;
 
         BufferStrategy bs = getBufferStrategy();
         if (bs == null) {
@@ -107,7 +238,6 @@ public class GameFrame extends Frame {
         Graphics gOffScreen = bs.getDrawGraphics();
         gOffScreen.clearRect(0, 0, getWidth(), getHeight());
 
-        // 绘制背景和飞机
         if (bgImg != null) {
             gOffScreen.drawImage(bgImg, 0, 0, getWidth(), getHeight(), null);
         }
@@ -115,7 +245,6 @@ public class GameFrame extends Frame {
             gOffScreen.drawImage(planeImg, x, y, 50, 50, null);
         }
 
-        // 根据方向标志更新飞机位置，并进行边界判断
         if (!gameOver) {
             if (left && x > 0) x -= 5;
             if (right && x < getWidth() - 50) x += 5;
@@ -123,40 +252,33 @@ public class GameFrame extends Frame {
             if (down && y < getHeight() - 50) y += 5;
         }
 
-        // 绘制并更新红包
         if (!gameOver) {
             Iterator<RedPacket> iterator = redPackets.iterator();
             while (iterator.hasNext()) {
                 RedPacket packet = iterator.next();
-                if (redPocketImg != null) {
-                    gOffScreen.drawImage(redPocketImg, packet.getX(), packet.getY(), 30, 45, null);  // 绘制红包
-                }
-                packet.update(getWidth(), getHeight());  // 更新红包的位置
+                gOffScreen.drawImage(packet.getRedPocketImg(), packet.getX(), packet.getY(), packet.getWidth(), packet.getHeight(), null);
+                packet.update(getWidth(), getHeight());
 
-                // 碰撞检测
                 if (isCollision(x, y, packet.getX(), packet.getY())) {
                     redPacketCount++;
                     totalAmount += packet.getAmount();
-                    iterator.remove();  // 移除被抢到的红包
+                    iterator.remove();
                 }
             }
         }
 
-        // 显示抢到的红包数量和金额
         gOffScreen.setColor(Color.red);
         gOffScreen.drawString("抢到红包: " + redPacketCount, 10, 20);
         gOffScreen.drawString("总金额: " + totalAmount, 10, 40);
 
-        // 计算剩余时间并显示
         long remainingTime = endTime - (System.currentTimeMillis() - startTime);
         if (remainingTime > 0) {
             gOffScreen.drawString("剩余时间: " + (remainingTime / 1000) + " 秒", 10, 60);
         } else {
             gameOver = true;
-            Font largeFont = new Font("Dialog", Font.BOLD, 40);  // 创建大号字体
+            Font largeFont = new Font("Dialog", Font.BOLD, 40);
             gOffScreen.setFont(largeFont);
 
-            // 计算文本的宽度和高度
             FontMetrics fm = gOffScreen.getFontMetrics();
             String gameOverText = "游戏结束";
             String redPacketCountText = "抢到红包: " + redPacketCount;
@@ -168,44 +290,54 @@ public class GameFrame extends Frame {
             int totalAmountWidth = fm.stringWidth(totalAmountText);
             int restartWidth = fm.stringWidth(restartText);
 
-            // 计算文本的起始位置
             int centerX = getWidth() / 2;
             int centerY = getHeight() / 2;
 
-            // 绘制文本
             gOffScreen.drawString(gameOverText, centerX - gameOverWidth / 2, centerY - 60);
             gOffScreen.drawString(redPacketCountText, centerX - redPacketCountWidth / 2, centerY - 20);
             gOffScreen.drawString(totalAmountText, centerX - totalAmountWidth / 2, centerY + 20);
             gOffScreen.drawString(restartText, centerX - restartWidth / 2, centerY + 60);
         }
 
-        // 完成绘制的图像
         bs.show();
         gOffScreen.dispose();
     }
 
-    // 碰撞检测方法
     private boolean isCollision(int x1, int y1, int x2, int y2) {
         int distance = (int) Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
-        return distance < 30;  // 判断两个圆心之间的距离是否小于30
+        return distance < 30;
     }
 
-    // 游戏主循环，控制游戏的更新和渲染
+    private class KeyMonitor extends KeyAdapter {
+        @Override
+        public void keyPressed(KeyEvent e) {
+            int keyCode = e.getKeyCode();
+            if (keyCode == KeyEvent.VK_LEFT) left = true;
+            if (keyCode == KeyEvent.VK_RIGHT) right = true;
+            if (keyCode == KeyEvent.VK_UP) up = true;
+            if (keyCode == KeyEvent.VK_DOWN) down = true;
+            if (keyCode == KeyEvent.VK_R && gameOver) {
+                resetGame();
+            }
+        }
+
+        @Override
+        public void keyReleased(KeyEvent e) {
+            int keyCode = e.getKeyCode();
+            if (keyCode == KeyEvent.VK_LEFT) left = false;
+            if (keyCode == KeyEvent.VK_RIGHT) right = false;
+            if (keyCode == KeyEvent.VK_UP) up = false;
+            if (keyCode == KeyEvent.VK_DOWN) down = false;
+        }
+    }
+
     private class GameLoop implements Runnable {
         @Override
         public void run() {
-            while (true) {
-                if (!gameOver) {
-                    repaint();  // 每帧都重绘游戏界面
-                } else {
-                    try {
-                        Thread.sleep(100);  // 游戏结束时降低刷新频率
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
+            while (!gameOver) {
+                repaint();
                 try {
-                    Thread.sleep(30);  // 让线程休眠30毫秒，控制帧率
+                    Thread.sleep(30);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -213,95 +345,17 @@ public class GameFrame extends Frame {
         }
     }
 
-    // 红包类，表示一个红包
-    private class RedPacket {
-        private int x, y;  // 红包的位置
-        private double degree;  // 红包的运动角度
-        private int amount;  // 红包的金额
-
-        // 构造方法，设置红包的初始位置、运动角度和金额
-        public RedPacket(int startX, int startY, double degree, int amount) {
-            this.x = startX;
-            this.y = startY;
-            this.degree = degree;
-            this.amount = amount;
-        }
-
-        // 更新红包位置的方法
-        public void update(int width, int height) {
-            this.x += 7 * Math.cos(degree);  // 更新x坐标
-            this.y += 7 * Math.sin(degree);  // 更新y坐标
-
-            // 如果红包碰到边界，则反弹
-            if (y > height - 10 || y < 10) {
-                degree = -degree;  // 反弹后改变角度
-            }
-            if (x > width - 10 || x < 10) {
-                degree = Math.PI - degree;  // 反弹后改变角度
-            }
-
-            // 确保红包不卡在边界处
-            if (x < 10) x = 10;
-            if (x > width - 10) x = width - 10;
-            if (y < 10) y = 10;
-            if (y > height - 10) y = height - 10;
-        }
-
-        // 获取红包的x坐标
-        public int getX() {
-            return x;
-        }
-
-        // 获取红包的y坐标
-        public int getY() {
-            return y;
-        }
-
-        // 获取红包的金额
-        public int getAmount() {
-            return amount;
-        }
-    }
-
-    // 键盘监听器，处理按键事件
-    private class KeyMonitor extends KeyAdapter {
-        @Override
-        public void keyPressed(KeyEvent e) {
-            // 根据按键控制飞机的运动
-            switch (e.getKeyCode()) {
-                case KeyEvent.VK_LEFT: left = true; break;
-                case KeyEvent.VK_RIGHT: right = true; break;
-                case KeyEvent.VK_UP: up = true; break;
-                case KeyEvent.VK_DOWN: down = true; break;
-                case KeyEvent.VK_R:
-                    if (gameOver) {
-                        restartGame();
-                    }
-                    break;
-            }
-        }
-
-        @Override
-        public void keyReleased(KeyEvent e) {
-            // 释放按键时停止飞机运动
-            switch (e.getKeyCode()) {
-                case KeyEvent.VK_LEFT: left = false; break;
-                case KeyEvent.VK_RIGHT: right = false; break;
-                case KeyEvent.VK_UP: up = false; break;
-                case KeyEvent.VK_DOWN: down = false; break;
-            }
-        }
-    }
-
-    // 重新开始游戏的方法
-    private void restartGame() {
-        gameOver = false;
+    private void resetGame() {
         redPacketCount = 0;
         totalAmount = 0;
-        x = 275;
-        y = 275;
         redPackets.clear();
         initializeRedPackets();
+        gameOver = false;
         startTime = System.currentTimeMillis();
+        repaint();
+        gameReset = true;  // 标记游戏已被重置
+        startGameLoop();  // 重启游戏循环
     }
 }
+
+
